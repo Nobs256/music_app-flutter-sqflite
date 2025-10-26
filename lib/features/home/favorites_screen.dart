@@ -1,6 +1,7 @@
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:musicapp/data/models/media.dart';
-import 'package:musicapp/data/services/api_service.dart';
+import 'package:musicapp/data/services/database_service.dart';
 import 'package:musicapp/features/player/media_player_screen.dart';
 
 class FavoritesScreen extends StatefulWidget {
@@ -11,18 +12,20 @@ class FavoritesScreen extends StatefulWidget {
 }
 
 class _FavoritesScreenState extends State<FavoritesScreen> {
-  final ApiService _apiService = ApiService();
+  final DatabaseService _dbService = DatabaseService();
   late Future<List<Media>> _favoritesFuture;
 
   @override
   void initState() {
     super.initState();
-    _loadFavorites();
+    // The parent MainScreen already handles the logged-in check.
+    // We can assume the user is logged in when this screen is built.
+    _favoritesFuture = _dbService.getFavorites();
   }
 
   void _loadFavorites() {
     setState(() {
-      _favoritesFuture = _apiService.getFavorites();
+      _favoritesFuture = _dbService.getFavorites();
     });
   }
 
@@ -55,8 +58,12 @@ class _FavoritesScreenState extends State<FavoritesScreen> {
                   leading: CircleAvatar(
                     backgroundImage:
                         (media.coverArtPath != null &&
-                                media.coverArtPath!.isNotEmpty)
-                            ? NetworkImage(media.coverArtPath!)
+                                media
+                                    .coverArtPath!
+                                    .isNotEmpty) // Check if path is not empty
+                            ? FileImage(
+                              File(media.coverArtPath!),
+                            ) // Use FileImage for local paths
                             : null,
                     child:
                         (media.coverArtPath == null ||

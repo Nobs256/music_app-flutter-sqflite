@@ -1,55 +1,46 @@
 # musicapp
 
-A music and video streaming application for local artists and content from Mbarara City.
+A music and video streaming application for local artists and content from Mbarara, built with Flutter. The app uses a local SQLite database to manage user data, media metadata, and favorites, operating entirely offline.
 
 ### Features
 
 **Guest Users (Not Logged In):**
 - Browse and search for all available music and videos.
 - Stream any audio or video content.
+- Onboarding screens for a better first-time user experience.
 
 **Authenticated Users (Logged In):**
 - All guest features.
-- Upload their own music and videos.
-- View a personal profile page with their uploaded content.
-- Download media for offline listening.
+- Register local media files (audio/video) with the app.
+- View a personal profile page with their uploaded content. (Media is stored locally)
 - Add/remove media to a personal favorites list.
+- View a list of recently played items.
+- Download media files to the device's public "Downloads" folder.
 
 ### Tech Stack
 
 - **Frontend:** Flutter
-- **Backend:** PHP
-- **Database:** MySQL
+- **Database:** SQLite (using `sqflite` for local storage)
+- **State Management:** Provider (for audio player and other states)
 
 ### Application Flow
 
-1.  **App Structure**: The app is built around a `MainScreen` with a bottom navigation bar containing three tabs: Home, Favorites, and Profile.
-2.  **Guest Experience**: Guests land on the **Home** tab to browse, search, and play public media. The **Favorites** and **Profile** tabs show a message prompting them to log in.
-3.  **User Authentication**: Users can navigate to a `LoginScreen` or `RegistrationScreen` from the placeholder tabs. Upon successful login, a JWT is securely stored on the device.
-4.  **Authenticated Experience**: Once logged in, all tabs are fully functional. The **Favorites** tab shows their saved media, and the **Profile** tab displays their uploaded content and a logout button. Users can upload new content from the profile page.
+1.  **First Launch**: New users are greeted with an onboarding flow. Returning users are taken directly to the `MainScreen`.
+2.  **App Structure**: The app is built around a `MainScreen` with a bottom navigation bar containing three tabs: **Home**, **Favorites**, and **Profile**. A persistent `MiniPlayer` is shown at the bottom when audio is playing.
+3.  **Guest Experience**: Guests can access the **Home** tab to browse, search, and play all media. The **Favorites** and **Profile** tabs prompt them to log in.
+4.  **User Authentication**: Users can log in or register. Upon successful login, their session is stored locally in the SQLite database.
+5.  **Authenticated Experience**: Once logged in, all tabs are fully functional. The **Favorites** tab shows their saved media, and the **Profile** tab displays their registered content and a logout button.
 
 ### Installation and Setup
 
 Follow these steps to get the project running locally.
 
-#### Part 1: Backend API Setup (on InfinityFree)
-
-1.  **Upload Files**: Sign up for an InfinityFree account. Using an FTP client like FileZilla, upload the entire `backendapi` folder to the `htdocs` directory of your InfinityFree hosting account.
-2.  **Create Database**: From the InfinityFree client area, create a new MySQL database. Note the **DB Name**, **DB User**, **DB Host**, and your account **password**.
-3.  **Configure Connection**: Navigate to `htdocs/backendapi/api/` and edit the `db_connect.php` file. Replace the placeholder credentials with the ones you noted in the previous step.
-4.  **Find API URL**: Your API base URL will be your InfinityFree domain followed by `/backendapi/api`. For example: `http://your-domain.rf.gd/backendapi/api`.
-
-#### Part 2: Frontend App Setup
-
 1.  **Prerequisites**: Ensure you have the Flutter SDK installed.
 2.  **Clone Repository**: `git clone <your-repository-url>`
 3.  **Install Dependencies**: Navigate to the project root and run `flutter pub get`.
-4.  **Configure API URL**: Open `lib/core/constants.dart` and update the `apiBaseUrl` variable with the URL you identified in Part 1, Step 4.
-5.  **Run the App**: Connect a device or start an emulator and run `flutter run`.
+4.  **Run the App**: Connect a device or start an emulator and run `flutter run`. The app will create a local SQLite database on first launch.
 
 ### Project Structure
-
-The project is organized into a clean, feature-first architecture to promote scalability and maintainability.
 
 ```
 musicapp/
@@ -90,6 +81,7 @@ musicapp/
 ```
 
 ### Backend API
+
 
 The backend is a RESTful API built with PHP.
 

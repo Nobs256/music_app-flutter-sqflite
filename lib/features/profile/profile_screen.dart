@@ -1,7 +1,9 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:musicapp/data/models/media.dart';
 import 'package:musicapp/features/auth/login_screen.dart';
-import 'package:musicapp/data/services/api_service.dart';
+import 'package:musicapp/data/services/database_service.dart';
 import 'package:musicapp/features/profile/upload_screen.dart';
 import 'package:musicapp/features/player/media_player_screen.dart';
 
@@ -13,35 +15,34 @@ class ProfileScreen extends StatefulWidget {
 }
 
 class _ProfileScreenState extends State<ProfileScreen> {
-  final ApiService _apiService = ApiService();
+  final DatabaseService _dbService = DatabaseService();
   late Future<List<Media>> _myMediaFuture;
   String? _username;
 
   @override
   void initState() {
     super.initState();
-    _loadUserData();
-  }
-
-  void _loadUserData({bool forceRefresh = false}) {
-    // setState is used here to make the FutureBuilder rebuild with the new future.
-    setState(() {
-      _myMediaFuture = _apiService.getMyMedia(forceRefresh: forceRefresh);
-      _apiService.getUsernameFromToken().then((username) {
-        if (mounted) {
-          setState(() {
-            _username = username;
-          });
-        }
-      });
+    // Assign the future directly in initState without setState.
+    _myMediaFuture = _dbService.getMyMedia();
+    _dbService.getUsername().then((username) {
+      if (mounted) {
+        setState(() {
+          _username = username;
+        });
+      }
     });
   }
 
-  Future<void> _navigateAndRefresh() async {
+  void _loadUserData() {
+    // setState is used here to make the FutureBuilder rebuild with the new future.
+    setState(() => _myMediaFuture = _dbService.getMyMedia());
+  }
+
+  Future<void> _navigateAndRefresh({Media? mediaToEdit}) async {
     // Await the result from UploadScreen
-    final result = await Navigator.of(
-      context,
-    ).push<bool>(MaterialPageRoute(builder: (_) => const UploadScreen()));
+    final result = await Navigator.of(context).push<bool>(
+      MaterialPageRoute(builder: (_) => UploadScreen(mediaToEdit: mediaToEdit)),
+    );
 
     // If the result is true, it means an upload was successful, so refresh the data.
     if (result == true) {
@@ -49,8 +50,48 @@ class _ProfileScreenState extends State<ProfileScreen> {
     }
   }
 
+  Future<void> _deleteMedia(int mediaId) async {
+    // Show a confirmation dialog before deleting
+    final bool? confirm = await showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Confirm Deletion'),
+        content: const Text('Are you sure you want to delete this media? This action cannot be undone.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('CANCEL'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            child: const Text('DELETE'),
+            style: TextButton.styleFrom(foregroundColor: Colors.red),
+          ),
+        ],
+      ),
+    );
+
+    if (confirm == true) {
+      try {
+        await _dbService.deleteMedia(mediaId);
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Media deleted successfully.')),
+          );
+          _loadUserData(); // Refresh the list
+        }
+      } catch (e) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Failed to delete media: ${e.toString()}')),
+          );
+        }
+      }
+    }
+  }
+
   Future<void> _logout() async {
-    await _apiService.logout();
+    await _dbService.logout();
     if (mounted) {
       // Pop the profile screen to return to the home screen
       // Navigate to a fresh login screen to signify being logged out.
@@ -99,12 +140,13 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   backgroundImage:
                       (media.coverArtPath != null &&
                               media.coverArtPath!.isNotEmpty)
-                          ? NetworkImage(media.coverArtPath!)
+                          ? FileImage(File(media.coverArtPath!))
                           : null,
                   child:
                       (media.coverArtPath == null ||
                               media.coverArtPath!.isEmpty)
                           ? Icon(
+                            // The null-check for FileImage is implicit.
                             media.mediaType == 'audio'
                                 ? Icons.music_note
                                 : Icons.videocam,
@@ -120,13 +162,32 @@ class _ProfileScreenState extends State<ProfileScreen> {
                     ),
                   );
                 },
+                trailing: PopupMenuButton<String>(
+                  onSelected: (value) {
+                    if (value == 'edit') {
+                      _navigateAndRefresh(mediaToEdit: media);
+                    } else if (value == 'delete') {
+                      _deleteMedia(media.id);
+                    }
+                  },
+                  itemBuilder: (BuildContext context) => <PopupMenuEntry<String>>[
+                    const PopupMenuItem<String>(
+                      value: 'edit',
+                      child: ListTile(leading: Icon(Icons.edit), title: Text('Edit')),
+                    ),
+                    const PopupMenuItem<String>(
+                      value: 'delete',
+                      child: ListTile(leading: Icon(Icons.delete), title: Text('Delete')),
+                    ),
+                  ],
+                ),
               );
             },
           );
         },
       ),
       floatingActionButton: FloatingActionButton(
-        onPressed: _navigateAndRefresh,
+        onPressed: () => _navigateAndRefresh(),
         tooltip: 'Upload Media',
         child: const Icon(Icons.upload),
       ),

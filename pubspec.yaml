@@ -35,28 +35,32 @@ dependencies:
   # Use with the CupertinoIcons class for iOS style icons.
   cupertino_icons: ^1.0.8
 
-  # For making HTTP requests to the API
-  http: ^1.2.1
-  # For securely storing the JWT
+  shared_preferences:
+
+  # For securely storing the current user's ID
   flutter_secure_storage: ^9.2.2
-  # For decoding JWTs on the client side
-  jwt_decoder: ^2.0.1
   # For picking files from the device
   file_picker: ^8.0.5
   # For video and audio playback
   video_player: ^2.9.1
   # A wrapper around video_player for a clean UI
   chewie: ^1.8.1
-  # For advanced networking like file downloads and progress
-  dio: ^5.5.0+1
   # To find correct paths for storing files
   path_provider: ^2.1.3
   # To handle runtime permissions for storage
   permission_handler: ^11.3.1
+  # For local database storage
+  sqflite: ^2.3.3+1
+  # For joining paths
+  path: ^1.9.0
+  # For state management
+  provider: ^6.1.2
 
 dev_dependencies:
   flutter_test:
     sdk: flutter
+
+  flutter_launcher_icons: "^0.13.1"
 
   # The "flutter_lints" package below contains a set of recommended lints to
   # encourage good coding practices. The lint set provided by the package is
@@ -64,6 +68,11 @@ dev_dependencies:
   # package. See that file for information about deactivating specific lint
   # rules and activating additional ones.
   flutter_lints: ^5.0.0
+
+flutter_launcher_icons:
+  android: "launcher_icon"
+  ios: true
+  image_path: "assets/logo.png"
 
 # For information on the generic Dart part of this file, see the
 # following page: https://dart.dev/tools/pub/pubspec
@@ -77,8 +86,8 @@ flutter:
   uses-material-design: true
 
   # To add assets to your application, add an assets section, like this:
-  # assets:
-  #   - images/a_dot_burr.jpeg
+  assets:
+    - assets/
   #   - images/a_dot_ham.jpeg
 
   # An image asset can refer to one or more resolution-specific "variants", see
