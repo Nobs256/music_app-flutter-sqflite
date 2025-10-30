@@ -19,7 +19,7 @@ class HomeScreen extends StatefulWidget {
 }
 
 class _HomeScreenState extends State<HomeScreen>
-    with SingleTickerProviderStateMixin {
+    with SingleTickerProviderStateMixin, WidgetsBindingObserver {
   late Future<void> _initialLoadFuture;
   final DatabaseService _dbService = DatabaseService();
   late TabController _tabController;
@@ -39,7 +39,15 @@ class _HomeScreenState extends State<HomeScreen>
     super.initState();
     _tabController = TabController(length: 3, vsync: this);
     _initialLoadFuture = _loadInitialData();
+    WidgetsBinding.instance.addObserver(this);
     _searchController.addListener(_filterMedia);
+
+    // Add listener for tab changes to refresh recently played when the tab is selected
+    _tabController.addListener(() {
+      if (_tabController.index == 0 && !_tabController.indexIsChanging) {
+        _loadRecentlyPlayed(); // Refresh only recently played data
+      }
+    });
   }
 
   @override
@@ -47,26 +55,56 @@ class _HomeScreenState extends State<HomeScreen>
     _tabController.dispose();
     _searchController.removeListener(_filterMedia);
     _searchController.dispose();
+    WidgetsBinding.instance.removeObserver(this);
     super.dispose();
   }
 
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    super.didChangeAppLifecycleState(state);
+    // When the app is resumed (e.g., returning from another screen or the background),
+    // reload the data to ensure it's up-to-date.
+    if (state == AppLifecycleState.resumed) {
+      _handleRefresh();
+    }
+  }
+
+  void _resetSearch() {
+    _searchController.clear();
+  }
+
+  // Dedicated method to load recently played data
+  Future<void> _loadRecentlyPlayed() async {
+    if (widget.isLoggedIn) {
+      final recentlyPlayed = await _dbService.getRecentlyPlayed();
+      if (mounted) {
+        setState(() {
+          _recentlyPlayed = recentlyPlayed;
+          _filterMedia(); // Re-apply filter to update _filteredRecentlyPlayed
+        });
+      }
+    } else {
+      if (mounted) {
+        setState(() {
+          _recentlyPlayed = [];
+          _filteredRecentlyPlayed = [];
+        });
+      }
+    }
+  }
+
   Future<void> _loadInitialData() async {
-    // Use Future.wait to fetch all necessary data in parallel.
-    // This ensures that both media and favorites are loaded before the UI tries to build.
     final results = await Future.wait([
       _dbService.getMedia(),
       if (widget.isLoggedIn) _dbService.getFavorites() else Future.value([]),
-      if (widget.isLoggedIn)
-        _dbService.getRecentlyPlayed()
-      else
-        Future.value([]),
     ]);
 
     if (mounted) {
-      _allMedia = results[0] as List<Media>;
-      final favorites = results[1] as List<Media>;
-      _favoriteMediaIds = favorites.map((media) => media.id!).toSet();
-      _recentlyPlayed = results[2] as List<Media>;
+      // Safely cast the results from Future.wait, which returns List<dynamic>.
+      _allMedia = (results[0]).cast<Media>();
+      final favorites = (results[1]).cast<Media>();
+      _favoriteMediaIds = favorites.map((media) => media.id).toSet();
+      await _loadRecentlyPlayed(); // Load recently played separately
 
       _filterMedia(); // Apply initial filtering
     }
@@ -120,78 +158,99 @@ class _HomeScreenState extends State<HomeScreen>
 
   Future<void> _handleRefresh() async {
     // This will re-trigger the FutureBuilder
-    await _loadInitialData();
-    // The FutureBuilder will not rebuild on its own with setState,
-    // but the internal state (_allMedia, etc.) is now fresh.
-    if (mounted) {
-      setState(() {
-        _filterMedia(); // Re-apply search filter or reset lists
-      });
-    }
+    // By calling setState, we give the FutureBuilder a new future to track,
+    // which will cause it to show a loading indicator and then rebuild with fresh data.
+    setState(() {
+      _initialLoadFuture = _loadInitialData();
+    });
   }
 
   Future<void> _toggleFavorite(int mediaId) async {
-    await _dbService.toggleFavorite(mediaId);
-    // Show feedback and update the UI
+    if (!widget.isLoggedIn) return;
+
+    // Optimistically update the UI for an instant response.
+    final isCurrentlyFavorite = _favoriteMediaIds.contains(mediaId);
+
+    setState(() {
+      if (isCurrentlyFavorite) {
+        _favoriteMediaIds.remove(mediaId);
+      } else {
+        _favoriteMediaIds.add(mediaId);
+      }
+    });
+
+    // Show feedback to the user.
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(
-          _favoriteMediaIds.contains(mediaId)
-              ? 'Removed from favorites'
-              : 'Added to favorites',
+          isCurrentlyFavorite ? 'Removed from favorites' : 'Added to favorites',
         ),
         duration: const Duration(seconds: 1),
       ),
     );
-    _loadFavorites(); // Reload favorites to update the icon
+
+    // Perform the database operation in the background.
+    try {
+      await _dbService.toggleFavorite(mediaId);
+    } catch (e) {
+      // If the database operation fails, revert the UI change and show an error.
+      setState(
+        () =>
+            isCurrentlyFavorite
+                ? _favoriteMediaIds.add(mediaId)
+                : _favoriteMediaIds.remove(mediaId),
+      );
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Error: Could not update favorites.')),
+      );
+    }
   }
 
   Future<void> _downloadMedia(Media media) async {
-    // 1. Check for permissions
-    // On Android 13+ (API 33+), we need to request granular media permissions.
-    // On older versions, Permission.storage is used. The permission_handler
-    // package gracefully handles requesting a permission that doesn't exist
-    // on an older OS version, so we can request all relevant ones.
-    Map<Permission, PermissionStatus> statuses;
-    if (media.mediaType == 'video') {
-      statuses = await [Permission.storage, Permission.videos].request();
-    } else {
-      // Default to audio permission for audio files or any other type
-      statuses = await [Permission.storage, Permission.audio].request();
-    }
+    // 1. Request appropriate permissions based on Android version and media type.
+    // For Android 13+ (API 33+), we need granular media permissions.
+    // For older versions, we fall back to `Permission.storage`.
+    // The `permission_handler` package handles this gracefully.
+    final permission =
+        media.mediaType == 'video' ? Permission.videos : Permission.audio;
 
-    // Check if either storage (for older Android) or the specific media
-    // permission (for newer Android) is granted.
+    // We request both the specific media permission and general storage.
+    // On older Android, `videos`/`audio` will be granted automatically if `storage` is.
+    // On newer Android, `storage` might be denied but `videos`/`audio` can still be granted.
+    final statuses = await [permission, Permission.storage].request();
+
     final isGranted =
-        statuses[Permission.storage] == PermissionStatus.granted ||
-        statuses[Permission.videos] == PermissionStatus.granted ||
-        statuses[Permission.audio] == PermissionStatus.granted;
+        statuses[permission] == PermissionStatus.granted ||
+        statuses[Permission.storage] == PermissionStatus.granted;
 
-    var status = await Permission.storage.request();
-    if (!status.isGranted) {
-      if (!isGranted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Storage permission is required to download files.'),
-          ),
-        );
-        return;
+    final isPermanentlyDenied =
+        statuses[permission] == PermissionStatus.permanentlyDenied ||
+        statuses[Permission.storage] == PermissionStatus.permanentlyDenied;
+
+    if (!isGranted) {
+      String message = 'Storage permission is required to download files.';
+      if (isPermanentlyDenied) {
+        message =
+            'Permission denied. Please enable it in app settings to download files.';
+        // Optionally, open app settings for the user.
+        // openAppSettings();
       }
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(message)));
+      return;
     }
 
     try {
-      // 2. Get the downloads directory
       final downloadsDirectory = await getDownloadsDirectory();
       if (downloadsDirectory == null) {
         throw Exception('Could not find the downloads directory.');
       }
 
-      // 3. Create the destination path
       final sourceFile = File(media.filePath);
       final fileName = p.basename(media.filePath);
       final destinationPath = p.join(downloadsDirectory.path, fileName);
 
-      // 4. Copy the file
       await sourceFile.copy(destinationPath);
 
       ScaffoldMessenger.of(
@@ -202,6 +261,30 @@ class _HomeScreenState extends State<HomeScreen>
         SnackBar(content: Text('Download failed: ${e.toString()}')),
       );
     }
+  }
+
+  Widget _buildFavoriteButton(Media media) {
+    final isFavorite = _favoriteMediaIds.contains(media.id);
+    return IconButton(
+      icon: AnimatedSwitcher(
+        duration: const Duration(milliseconds: 300),
+        transitionBuilder: (Widget child, Animation<double> animation) {
+          // Use a scale transition for a 'popping' effect
+          return ScaleTransition(scale: animation, child: child);
+        },
+        child: Icon(
+          isFavorite ? Icons.favorite : Icons.favorite_border,
+          // Add a key to help AnimatedSwitcher differentiate between the two icons
+          key: ValueKey<bool>(isFavorite),
+          color: Colors.redAccent,
+        ),
+      ),
+      onPressed: () {
+        if (media.id != null) {
+          _toggleFavorite(media.id!);
+        }
+      },
+    );
   }
 
   @override
@@ -220,7 +303,7 @@ class _HomeScreenState extends State<HomeScreen>
                   ),
                   style: const TextStyle(color: Colors.white, fontSize: 18),
                 )
-                : const Text('Mbrara Grooves'),
+                : const Text('Mbarara Grooves'),
         actions: [
           IconButton(
             icon: Icon(_isSearching ? Icons.close : Icons.search),
@@ -228,9 +311,7 @@ class _HomeScreenState extends State<HomeScreen>
               setState(() {
                 _isSearching = !_isSearching;
                 // Clear search when closing the search bar
-                if (!_isSearching) {
-                  _searchController.clear();
-                }
+                if (!_isSearching) _resetSearch();
               });
             },
           ),
@@ -350,15 +431,7 @@ class _HomeScreenState extends State<HomeScreen>
                           if (widget.isLoggedIn)
                             Row(
                               children: [
-                                IconButton(
-                                  icon: Icon(
-                                    _favoriteMediaIds.contains(media.id)
-                                        ? Icons.favorite
-                                        : Icons.favorite_border,
-                                    color: Colors.redAccent,
-                                  ),
-                                  onPressed: () => _toggleFavorite(media.id!),
-                                ),
+                                _buildFavoriteButton(media),
                                 IconButton(
                                   icon: const Icon(
                                     Icons.download,
@@ -408,16 +481,7 @@ class _HomeScreenState extends State<HomeScreen>
                   ? Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      IconButton(
-                        icon: Icon(
-                          _favoriteMediaIds.contains(media.id)
-                              ? Icons.favorite
-                              : Icons.favorite_border,
-                          color: Colors.redAccent,
-                        ),
-                        onPressed: () => _toggleFavorite(media.id!),
-                        tooltip: 'Favorite',
-                      ),
+                      _buildFavoriteButton(media),
                       IconButton(
                         icon: const Icon(
                           Icons.download,
@@ -444,6 +508,9 @@ class _HomeScreenState extends State<HomeScreen>
   Widget _buildRecentlyPlayedList() {
     if (!widget.isLoggedIn) {
       return const Center(
+        // Important: Ensure your media player calls `_dbService.addRecentlyPlayed(media.id!)`
+        // whenever a song starts playing for this list to populate.
+        // This typically happens in `AudioPlayerProvider` or `MediaPlayerScreen`.
         child: Text('Log in to see your recently played items.'),
       );
     }
@@ -473,16 +540,7 @@ class _HomeScreenState extends State<HomeScreen>
           ),
           title: Text(media.title),
           subtitle: Text(media.artist),
-          trailing: IconButton(
-            icon: Icon(
-              _favoriteMediaIds.contains(media.id)
-                  ? Icons.favorite
-                  : Icons.favorite_border,
-              color: Colors.redAccent,
-            ),
-            onPressed: () => _toggleFavorite(media.id!),
-            tooltip: 'Favorite',
-          ),
+          trailing: _buildFavoriteButton(media),
           onTap: () {
             if (media.mediaType == 'audio') {
               Provider.of<AudioPlayerProvider>(

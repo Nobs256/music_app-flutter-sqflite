@@ -68,8 +68,8 @@ class _StartupViewState extends State<StartupView> {
           ),
           Image.asset(
             "assets/logo.png",
-            width: media.width * 0.55,
-            height: media.width * 0.55,
+            width: media.width * 0.66,
+            height: media.width * 0.66,
             fit: BoxFit.contain,
           ),
           Positioned(
@@ -96,8 +96,8 @@ class _StartupViewState extends State<StartupView> {
                           Image.asset(
                             "assets/audio.png",
                             fit: BoxFit.cover,
-                            width: 80,
-                            height: 80,
+                            width: 30,
+                            height: 30,
                           ),
                           Text(
                             "Audios",
@@ -117,8 +117,8 @@ class _StartupViewState extends State<StartupView> {
                           Image.asset(
                             "assets/video.png",
                             fit: BoxFit.cover,
-                            width: 85,
-                            height: 85,
+                            width: 30,
+                            height: 30,
                           ),
                           Text(
                             "Videos",
