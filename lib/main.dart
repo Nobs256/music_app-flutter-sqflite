@@ -1,37 +1,42 @@
-import 'dart:io';
-
 import 'package:flutter/material.dart';
+import 'package:musicapp/features/auth/auth_provider.dart';
 import 'package:musicapp/features/player/audio_player_provider.dart';
 import 'package:provider/provider.dart';
+
 import 'features/home/splashscreen.dart';
 
 void main() {
-  // Ensure that plugin services are initialized before the app starts.
-  WidgetsFlutterBinding.ensureInitialized();
-  runApp(
-    ChangeNotifierProvider(
-      create: (_) => AudioPlayerProvider(),
-      child: const MyApp(),
-    ),
-  );
+  runApp(const MyApp());
 }
 
 class MyApp extends StatelessWidget {
   const MyApp({super.key});
 
-  // This widget is the root of your application.
   @override
   Widget build(BuildContext context) {
-    return MaterialApp(
-      title: 'Mbrara Grooves',
-      theme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(
-          seedColor: Colors.deepPurple,
+    // Wrap the app with MultiProvider to make our providers available globally.
+    return MultiProvider(
+      providers: [
+        // Provider for managing authentication state.
+        ChangeNotifierProvider(create: (_) => AuthProvider()),
+        // Provider for managing the audio player state.
+        ChangeNotifierProvider(create: (_) => AudioPlayerProvider()),
+      ],
+      child: MaterialApp(
+        title: 'MusicApp',
+        theme: ThemeData(
           brightness: Brightness.dark,
+          primarySwatch: Colors.teal,
+          scaffoldBackgroundColor: Colors.grey[900],
+          appBarTheme: AppBarTheme(color: Colors.grey[850], elevation: 4),
+          bottomNavigationBarTheme: BottomNavigationBarThemeData(
+            backgroundColor: Colors.grey[850],
+            selectedItemColor: Colors.tealAccent,
+            unselectedItemColor: Colors.grey[400],
+          ),
         ),
-        useMaterial3: true,
+        home: const StartupView(),
       ),
-      home: const StartupView(),
     );
   }
 }

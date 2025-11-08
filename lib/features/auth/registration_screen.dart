@@ -1,5 +1,7 @@
+// ignore_for_file: deprecated_member_use
+
 import 'package:flutter/material.dart';
-import 'package:musicapp/data/services/database_service.dart';
+import 'package:musicapp/data/services/api_service.dart';
 
 class RegistrationScreen extends StatefulWidget {
   const RegistrationScreen({super.key});
@@ -13,7 +15,7 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
   final _usernameController = TextEditingController();
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
-  final DatabaseService _dbService = DatabaseService();
+  final ApiService _apiService = ApiService();
   bool _isLoading = false;
   String? _errorMessage;
 
@@ -33,7 +35,7 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
       });
 
       try {
-        final result = await _dbService.register(
+        final result = await _apiService.register(
           _usernameController.text,
           _emailController.text,
           _passwordController.text,
@@ -119,8 +121,7 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
                           borderRadius: BorderRadius.circular(12),
                         ),
                         filled: true,
-                        // ignore: deprecated_member_use
-                        fillColor: Colors.white.withOpacity(0.1),
+                        fillColor: Colors.white.withOpacity(0.1), // This is fine
                       ),
                       validator:
                           (value) =>
@@ -136,7 +137,6 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
                           borderRadius: BorderRadius.circular(12),
                         ),
                         filled: true,
-                        // ignore: deprecated_member_use
                         fillColor: Colors.white.withOpacity(0.1),
                       ),
                       keyboardType: TextInputType.emailAddress,
@@ -158,7 +158,6 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
                           borderRadius: BorderRadius.circular(12),
                         ),
                         filled: true,
-                        // ignore: deprecated_member_use
                         fillColor: Colors.white.withOpacity(0.1),
                       ),
                       obscureText: true,

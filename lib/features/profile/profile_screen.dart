@@ -1,195 +1,223 @@
-import 'dart:io';
-
 import 'package:flutter/material.dart';
 import 'package:musicapp/data/models/media.dart';
-import 'package:musicapp/features/auth/login_screen.dart';
-import 'package:musicapp/data/services/database_service.dart';
-import 'package:musicapp/features/profile/upload_screen.dart';
+import 'package:musicapp/data/services/api_service.dart';
+import 'package:musicapp/features/auth/auth_provider.dart';
+import 'package:musicapp/features/player/audio_player_provider.dart';
 import 'package:musicapp/features/player/media_player_screen.dart';
+import 'package:musicapp/features/profile/upload_screen.dart';
+import 'package:musicapp/features/profile/edit_media_screen.dart';
+import 'package:provider/provider.dart';
 
 class ProfileScreen extends StatefulWidget {
-  const ProfileScreen({super.key});
+  const ProfileScreen({super.key, required Null Function() onLogout});
 
   @override
   State<ProfileScreen> createState() => _ProfileScreenState();
 }
 
 class _ProfileScreenState extends State<ProfileScreen> {
-  final DatabaseService _dbService = DatabaseService();
-  late Future<List<Media>> _myMediaFuture;
-  String? _username;
+  final ApiService _apiService = ApiService();
+  // The future will now return a Map with media and user stats
+  late Future<Map<String, dynamic>> _profileDataFuture;
 
   @override
   void initState() {
     super.initState();
-    // Assign the future directly in initState without setState.
-    _myMediaFuture = _dbService.getMyMedia();
-    _dbService.getUsername().then((username) {
-      if (mounted) {
-        setState(() {
-          _username = username;
-        });
-      }
+    // Assuming getMyMedia now returns a map like {'media': [...], 'subscriber_count': X}
+    _profileDataFuture = _apiService.getMyMedia();
+  }
+
+  Future<void> _loadMyMedia() async {
+    setState(() {
+      _profileDataFuture = _apiService.getMyMedia(forceRefresh: true);
     });
   }
 
-  void _loadUserData() {
-    // setState is used here to make the FutureBuilder rebuild with the new future.
-    setState(() => _myMediaFuture = _dbService.getMyMedia());
-  }
-
-  Future<void> _navigateAndRefresh({Media? mediaToEdit}) async {
-    // Await the result from UploadScreen
-    final result = await Navigator.of(context).push<bool>(
-      MaterialPageRoute(builder: (_) => UploadScreen(mediaToEdit: mediaToEdit)),
-    );
-
-    // If the result is true, it means an upload was successful, so refresh the data.
-    if (result == true) {
-      _loadUserData();
-    }
-  }
-
-  Future<void> _deleteMedia(int mediaId) async {
-    // Show a confirmation dialog before deleting
-    final bool? confirm = await showDialog(
+  Future<void> _deleteMedia(Media media) async {
+    // Show a confirmation dialog before deleting.
+    final bool? confirmed = await showDialog<bool>(
       context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Confirm Deletion'),
-        content: const Text('Are you sure you want to delete this media? This action cannot be undone.'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(false),
-            child: const Text('CANCEL'),
+      builder: (BuildContext context) {
+        return AlertDialog(
+          title: const Text('Confirm Deletion'),
+          content: Text(
+            'Are you sure you want to delete "${media.title}"? This action cannot be undone.',
           ),
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(true),
-            child: const Text('DELETE'),
-            style: TextButton.styleFrom(foregroundColor: Colors.red),
-          ),
-        ],
-      ),
+          actions: <Widget>[
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(false),
+              child: const Text('CANCEL'),
+            ),
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(true),
+              child: const Text(
+                'DELETE',
+                style: TextStyle(color: Colors.redAccent),
+              ),
+            ),
+          ],
+        );
+      },
     );
 
-    if (confirm == true) {
-      try {
-        await _dbService.deleteMedia(mediaId);
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Media deleted successfully.')),
-          );
-          _loadUserData(); // Refresh the list
-        }
-      } catch (e) {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Failed to delete media: ${e.toString()}')),
-          );
-        }
-      }
+    // If the user did not confirm, do nothing.
+    if (confirmed != true) {
+      return;
     }
-  }
 
-  Future<void> _logout() async {
-    await _dbService.logout();
-    if (mounted) {
-      // Pop the profile screen to return to the home screen
-      // Navigate to a fresh login screen to signify being logged out.
-      Navigator.of(context, rootNavigator: true).pushAndRemoveUntil(
-        MaterialPageRoute(builder: (context) => const LoginScreen()),
-        (route) => false,
+    try {
+      final response = await _apiService.deleteMedia(media.id);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(response['message'] ?? 'Media deleted.')),
+        );
+        // Refresh the list of media.
+        _loadMyMedia();
+      }
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Error deleting media: ${e.toString()}')),
       );
-      // A better approach in a real app would be to use a state management solution to update the MainScreen.
     }
   }
 
   @override
   Widget build(BuildContext context) {
+    final authProvider = Provider.of<AuthProvider>(context, listen: false);
+
     return Scaffold(
       appBar: AppBar(
-        title: Text(_username ?? 'My Profile'),
+        title: Text(authProvider.username ?? 'My Profile'),
         actions: [
           IconButton(
             icon: const Icon(Icons.logout),
             tooltip: 'Logout',
-            onPressed: _logout,
+            onPressed: () async {
+              await authProvider.logout();
+              // The MainScreen will automatically rebuild to the logged-out state.
+            },
           ),
         ],
       ),
-      body: FutureBuilder<List<Media>>(
-        future: _myMediaFuture,
-        builder: (context, snapshot) {
-          if (snapshot.connectionState == ConnectionState.waiting) {
-            return const Center(child: CircularProgressIndicator());
-          } else if (snapshot.hasError) {
-            return Center(child: Text('Error: ${snapshot.error}'));
-          } else if (!snapshot.hasData || snapshot.data!.isEmpty) {
-            return const Center(
-              child: Text('You have not uploaded any media yet.'),
-            );
-          }
-
-          final mediaList = snapshot.data!;
-
-          return ListView.builder(
-            itemCount: mediaList.length,
-            itemBuilder: (context, index) {
-              final media = mediaList[index];
-              return ListTile(
-                leading: CircleAvatar(
-                  backgroundImage:
-                      (media.coverArtPath != null &&
-                              media.coverArtPath!.isNotEmpty)
-                          ? FileImage(File(media.coverArtPath!))
-                          : null,
-                  child:
-                      (media.coverArtPath == null ||
-                              media.coverArtPath!.isEmpty)
-                          ? Icon(
-                            // The null-check for FileImage is implicit.
-                            media.mediaType == 'audio'
-                                ? Icons.music_note
-                                : Icons.videocam,
-                          )
-                          : null,
-                ),
-                title: Text(media.title),
-                subtitle: Text(media.artist),
-                onTap: () {
-                  Navigator.of(context).push(
-                    MaterialPageRoute(
-                      builder: (_) => MediaPlayerScreen(media: media),
-                    ),
-                  );
-                },
-                trailing: PopupMenuButton<String>(
-                  onSelected: (value) {
-                    if (value == 'edit') {
-                      _navigateAndRefresh(mediaToEdit: media);
-                    } else if (value == 'delete') {
-                      _deleteMedia(media.id);
-                    }
-                  },
-                  itemBuilder: (BuildContext context) => <PopupMenuEntry<String>>[
-                    const PopupMenuItem<String>(
-                      value: 'edit',
-                      child: ListTile(leading: Icon(Icons.edit), title: Text('Edit')),
-                    ),
-                    const PopupMenuItem<String>(
-                      value: 'delete',
-                      child: ListTile(leading: Icon(Icons.delete), title: Text('Delete')),
-                    ),
-                  ],
-                ),
+      body: RefreshIndicator(
+        onRefresh: _loadMyMedia,
+        child: FutureBuilder<Map<String, dynamic>>(
+          future: _profileDataFuture,
+          builder: (context, snapshot) {
+            if (snapshot.connectionState == ConnectionState.waiting) {
+              return const Center(child: CircularProgressIndicator());
+            } else if (snapshot.hasError) {
+              return Center(child: Text('Error: ${snapshot.error}'));
+            } else if (!snapshot.hasData || snapshot.data!.isEmpty) {
+              return const Center(
+                child: Text('You have not uploaded any media yet.'),
               );
-            },
-          );
-        },
+            }
+
+            final profileData = snapshot.data!;
+            final mediaList = (profileData['media'] as List)
+                .map((item) => Media.fromJson(item))
+                .toList();
+            final subscriberCount = profileData['subscriber_count'] ?? 0;
+
+            return CustomScrollView(
+              slivers: [
+                SliverToBoxAdapter(
+                  child: Padding(
+                    padding: const EdgeInsets.all(16.0),
+                    child: Text(
+                      '$subscriberCount Subscribers',
+                      textAlign: TextAlign.center,
+                      style: Theme.of(context).textTheme.headlineSmall,
+                    ),
+                  ),
+                ),
+                SliverList(
+                  delegate: SliverChildBuilderDelegate(
+                    (context, index) {
+                      final media = mediaList[index];
+                      final likes = media.likesCount ?? 0;
+
+                      return ListTile(
+                        leading: CircleAvatar(
+                          backgroundImage: (media.coverArtPath != null &&
+                                  media.coverArtPath!.startsWith('http'))
+                              ? NetworkImage(media.coverArtPath!)
+                              : null,
+                          child: (media.coverArtPath == null ||
+                                  !media.coverArtPath!.startsWith('http'))
+                              ? Icon(
+                                  media.mediaType == 'audio'
+                                      ? Icons.music_note
+                                      : Icons.videocam,
+                                )
+                              : null,
+                        ),
+                        title: Text(media.title),
+                        subtitle: Row(
+                          children: [
+                            const Icon(Icons.thumb_up_alt_outlined, size: 14, color: Colors.grey),
+                            const SizedBox(width: 4),
+                            Text('$likes likes'),
+                          ],
+                        ),
+                        trailing: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            IconButton(
+                              icon: const Icon(Icons.edit_outlined),
+                              tooltip: 'Edit Title',
+                              onPressed: () async {
+                                final bool? editSuccess =
+                                    await Navigator.of(context).push(
+                                  MaterialPageRoute(
+                                    builder: (_) => EditMediaScreen(media: media),
+                                  ),
+                                );
+                                if (editSuccess == true) _loadMyMedia();
+                              },
+                            ),
+                            IconButton(
+                              icon: const Icon(Icons.delete_outline, color: Colors.redAccent),
+                              tooltip: 'Delete Media',
+                              onPressed: () => _deleteMedia(media),
+                            ),
+                          ],
+                        ),
+                        onTap: () {
+                          if (media.mediaType == 'audio') {
+                            Provider.of<AudioPlayerProvider>(context, listen: false).play(media);
+                          } else {
+                            Navigator.of(context).push(
+                              MaterialPageRoute(
+                                builder: (_) => MediaPlayerScreen(media: media),
+                              ),
+                            );
+                          }
+                        },
+                      );
+                    },
+                    childCount: mediaList.length,
+                  ),
+                ),
+              ],
+            );
+          },
+        ),
       ),
       floatingActionButton: FloatingActionButton(
-        onPressed: () => _navigateAndRefresh(),
-        tooltip: 'Upload Media',
+        onPressed: () async {
+          // Navigate to the upload screen and wait for a result.
+          final bool? uploadSuccess = await Navigator.of(
+            context,
+          ).push(MaterialPageRoute(builder: (_) => const UploadScreen()));
+          // If an upload was successful, refresh the list.
+          if (uploadSuccess == true) {
+            _loadMyMedia();
+          }
+        },
         child: const Icon(Icons.upload),
+        tooltip: 'Upload Media',
       ),
     );
   }

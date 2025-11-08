@@ -1,7 +1,10 @@
+// ignore_for_file: deprecated_member_use
+
 import 'package:flutter/material.dart';
-import 'package:musicapp/data/services/database_service.dart';
-import 'package:musicapp/features/auth/registration_screen.dart';
 import 'package:musicapp/features/main_screen.dart';
+import 'package:musicapp/features/auth/auth_provider.dart';
+import 'package:musicapp/features/auth/registration_screen.dart';
+import 'package:provider/provider.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -11,12 +14,10 @@ class LoginScreen extends StatefulWidget {
 }
 
 class _LoginScreenState extends State<LoginScreen> {
-  final _formKey = GlobalKey<FormState>();
-  final _usernameController = TextEditingController();
-  final _passwordController = TextEditingController();
-  final DatabaseService _dbService = DatabaseService();
+  final TextEditingController _usernameController = TextEditingController();
+  final TextEditingController _passwordController = TextEditingController();
+  final GlobalKey<FormState> _formKey = GlobalKey<FormState>();
   bool _isLoading = false;
-  String? _errorMessage;
 
   @override
   void dispose() {
@@ -26,58 +27,65 @@ class _LoginScreenState extends State<LoginScreen> {
   }
 
   Future<void> _login() async {
-    if (_formKey.currentState!.validate()) {
-      setState(() {
-        _isLoading = true;
-        _errorMessage = null;
-      });
+    if (!_formKey.currentState!.validate()) {
+      return;
+    }
 
-      try {
-        final result = await _dbService.login(
-          _usernameController.text,
-          _passwordController.text,
+    setState(() {
+      _isLoading = true;
+    });
+
+    final authProvider = Provider.of<AuthProvider>(context, listen: false);
+
+    try {
+      final success = await authProvider.login(
+        _usernameController.text,
+        _passwordController.text,
+      );
+
+      if (!mounted) return; // Check if the widget is still in the tree
+
+      if (success) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('Login successful!')));
+        // Replace the current navigation stack with the MainScreen to ensure
+        // the UI correctly reflects the new authenticated state.
+        Navigator.of(context).pushAndRemoveUntil(
+          MaterialPageRoute(builder: (context) => const MainScreen()),
+          (Route<dynamic> route) => false,
         );
-
-        if (mounted) {
-          if (result['error'] == false) {
-            // Success
-            Navigator.of(context).pushAndRemoveUntil(
-              MaterialPageRoute(builder: (context) => const MainScreen()),
-              (route) => false,
-            );
-          } else {
-            setState(() {
-              _errorMessage = result['message'];
-            });
-          }
-        }
-      } catch (e) {
-        if (mounted) {
-          setState(() {
-            _errorMessage = 'An unexpected error occurred: ${e.toString()}';
-          });
-        }
-      } finally {
-        if (mounted) {
-          setState(() {
-            _isLoading = false;
-          });
-        }
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Login failed. Please check your credentials.'),
+            backgroundColor: Colors.red,
+          ),
+        );
       }
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('An error occurred: ${e.toString()}'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    } finally {
+      setState(() {
+        _isLoading = false;
+      });
     }
   }
 
   @override
   Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+
     return Scaffold(
       body: Container(
         decoration: BoxDecoration(
           gradient: LinearGradient(
-            colors: [
-              Theme.of(context).colorScheme.primary,
-              // ignore: deprecated_member_use
-              Theme.of(context).colorScheme.background,
-            ],
+            colors: [colorScheme.primary, colorScheme.background],
             begin: Alignment.topCenter,
             end: Alignment.bottomCenter,
           ),
@@ -93,7 +101,7 @@ class _LoginScreenState extends State<LoginScreen> {
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
                     Text(
-                      'Welcome Back',
+                      'Welcome Back!',
                       textAlign: TextAlign.center,
                       style: Theme.of(
                         context,
@@ -101,7 +109,7 @@ class _LoginScreenState extends State<LoginScreen> {
                     ),
                     const SizedBox(height: 8),
                     Text(
-                      'Sign in to continue',
+                      'Log in to continue your groove.',
                       textAlign: TextAlign.center,
                       style: Theme.of(
                         context,
@@ -117,7 +125,6 @@ class _LoginScreenState extends State<LoginScreen> {
                           borderRadius: BorderRadius.circular(12),
                         ),
                         filled: true,
-                        // ignore: deprecated_member_use
                         fillColor: Colors.white.withOpacity(0.1),
                       ),
                       validator:
@@ -136,7 +143,6 @@ class _LoginScreenState extends State<LoginScreen> {
                           borderRadius: BorderRadius.circular(12),
                         ),
                         filled: true,
-                        // ignore: deprecated_member_use
                         fillColor: Colors.white.withOpacity(0.1),
                       ),
                       obscureText: true,
@@ -146,14 +152,7 @@ class _LoginScreenState extends State<LoginScreen> {
                                   ? 'Please enter your password'
                                   : null,
                     ),
-                    const SizedBox(height: 24),
-                    if (_errorMessage != null)
-                      Text(
-                        _errorMessage!,
-                        style: const TextStyle(color: Colors.redAccent),
-                        textAlign: TextAlign.center,
-                      ),
-                    const SizedBox(height: 16),
+                    const SizedBox(height: 32),
                     _isLoading
                         ? const Center(child: CircularProgressIndicator())
                         : ElevatedButton(
@@ -171,7 +170,7 @@ class _LoginScreenState extends State<LoginScreen> {
                       onPressed: () {
                         Navigator.of(context).push(
                           MaterialPageRoute(
-                            builder: (context) => const RegistrationScreen(),
+                            builder: (_) => const RegistrationScreen(),
                           ),
                         );
                       },
